@@ -25,6 +25,7 @@ import org.apache.flink.cep.nfa.State;
 import org.apache.flink.cep.nfa.StateTransition;
 import org.apache.flink.cep.nfa.StateTransitionAction;
 import org.apache.flink.cep.pattern.FollowedByPattern;
+import org.apache.flink.cep.pattern.NotFilterFunction;
 import org.apache.flink.cep.pattern.Pattern;
 import org.apache.flink.streaming.api.windowing.time.Time;
 
@@ -124,7 +125,7 @@ public class NFACompiler {
 					currentState.addStateTransition(new StateTransition<T>(
 						StateTransitionAction.IGNORE,
 						currentState,
-						null
+						new NotFilterFunction<>((FilterFunction<T>) succeedingPattern.getFilterFunction())
 					));
 				}
 			}
