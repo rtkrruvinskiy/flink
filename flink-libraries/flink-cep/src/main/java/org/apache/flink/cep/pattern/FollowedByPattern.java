@@ -18,6 +18,8 @@
 
 package org.apache.flink.cep.pattern;
 
+import java.util.EnumSet;
+
 /**
  * Pattern operator which signifies that the there is a non-strict temporal contiguity between
  * itself and its preceding pattern operator. This means that there might be events in between
@@ -27,7 +29,24 @@ package org.apache.flink.cep.pattern;
  * @param <F> Subtype of T to which the operator is currently constrained
  */
 public class FollowedByPattern<T, F extends T> extends Pattern<T, F> {
+	public enum MatchMode {
+		FromOne,
+		ToOne
+	}
+
+	private EnumSet<MatchMode> matchMode;
+
 	FollowedByPattern(final String name, Pattern<T, ?> previous) {
 		super(name, previous);
+		this.matchMode = EnumSet.noneOf(MatchMode.class);
+	}
+
+	public FollowedByPattern<T, F> manyToOne() {
+		this.matchMode.add(MatchMode.ToOne);
+		return this;
+	}
+
+	public boolean matchOnce() {
+		return this.matchMode.contains(MatchMode.ToOne);
 	}
 }

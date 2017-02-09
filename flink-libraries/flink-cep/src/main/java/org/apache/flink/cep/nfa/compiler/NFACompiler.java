@@ -25,6 +25,7 @@ import org.apache.flink.cep.nfa.State;
 import org.apache.flink.cep.nfa.StateTransition;
 import org.apache.flink.cep.nfa.StateTransitionAction;
 import org.apache.flink.cep.pattern.FollowedByPattern;
+import org.apache.flink.cep.pattern.NotFilterFunction;
 import org.apache.flink.cep.pattern.Pattern;
 import org.apache.flink.streaming.api.windowing.time.Time;
 
@@ -120,11 +121,15 @@ public class NFACompiler {
 					(FilterFunction<T>) succeedingPattern.getFilterFunction()));
 
 				if (succeedingPattern instanceof FollowedByPattern) {
+					FilterFunction<T> ignoreTrasition = null;
+					if (((FollowedByPattern) succeedingPattern).matchOnce()) {
+						ignoreTrasition = new NotFilterFunction<>((FilterFunction<T>) succeedingPattern.getFilterFunction());
+					}
 					// the followed by pattern entails a reflexive ignore transition
 					currentState.addStateTransition(new StateTransition<T>(
 						StateTransitionAction.IGNORE,
 						currentState,
-						null
+						ignoreTrasition
 					));
 				}
 			}
