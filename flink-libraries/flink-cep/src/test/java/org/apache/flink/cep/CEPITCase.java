@@ -572,4 +572,66 @@ public class CEPITCase extends StreamingMultipleProgramsTestBase {
 
 		env.execute();
 	}
+
+	/**
+	 * Checks that manyToOne semantics work as expected
+	 * @throws Exception
+	 */
+	@Test
+	public void testManyToOneCEP() throws Exception{
+		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+
+		DataStream<Event> input = env.fromElements(
+			new Event(1, "a", 1.0),
+			new Event(2, "b", 2.0),
+			new Event(3, "c", 3.0),
+			new Event(4, "d", 3.0),
+			new Event(5, "e", 11.0),
+			new Event(6, "f", 12.0)
+		);
+
+		Pattern<Event, ?> pattern = Pattern.<Event>begin("a")
+			.where(new FilterFunction<Event>() {
+				@Override
+				public boolean filter(Event value) throws Exception {
+					return value.getPrice() >= 2.0;
+				}
+			})
+			.followedBy("b")
+			.manyToOne()
+			.where(new FilterFunction<Event>() {
+				@Override
+				public boolean filter(Event value) throws Exception {
+					return value.getPrice() >= 3.0;
+				}
+			})
+			.followedBy("c")
+			.where(new FilterFunction<Event>() {
+				@Override
+				public boolean filter(Event value) throws Exception {
+					return value.getPrice() >= 10.0;
+				}
+			});
+
+
+		DataStream<String> result = CEP.pattern(input, pattern).select(new PatternSelectFunction<Event, String>() {
+
+			@Override
+			public String select(Map<String, Event> pattern) {
+				StringBuilder builder = new StringBuilder();
+
+				builder.append(pattern.get("a").getId()).append(",")
+					.append(pattern.get("b").getId()).append(",")
+					.append(pattern.get("c").getId());
+
+				return builder.toString();
+			}
+		});
+
+		result.writeAsText(resultPath, FileSystem.WriteMode.OVERWRITE);
+		// expected sequence of matching event ids
+		expected = "2,3,5\n3,4,5\n2,3,6\n3,4,6\n4,5,6";
+
+		env.execute();
+	}
 }

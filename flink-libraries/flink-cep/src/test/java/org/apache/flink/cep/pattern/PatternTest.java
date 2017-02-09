@@ -184,4 +184,33 @@ public class PatternTest extends TestLogger {
 		assertEquals(previous2.getName(), "start");
 	}
 
+	@Test
+	public void testPatternManyToOne() {
+		Pattern<Event, Event> pattern = Pattern.<Event>begin("start").where(new FilterFunction<Event>() {
+			@Override
+			public boolean filter(Event value) throws Exception {
+				return true;
+			}
+		}).followedBy("next").manyToOne().where(new FilterFunction<Event>() {
+			@Override
+			public boolean filter(Event value) throws Exception {
+				return true;
+			}
+		}).followedBy("end").where(new FilterFunction<Event>() {
+			@Override
+			public boolean filter(Event value) throws Exception {
+				return true;
+			}
+		});
+
+		Pattern<Event, ?> previous;
+
+		assertNotNull(previous = pattern.getPrevious());
+
+		assertTrue(pattern instanceof FollowedByPattern);
+		assertFalse(((FollowedByPattern) pattern).matchOnce());
+
+		assertTrue(previous instanceof FollowedByPattern);
+		assertTrue(((FollowedByPattern) previous).matchOnce());
+	}
 }
