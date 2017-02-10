@@ -53,9 +53,12 @@ public class Pattern<T, F extends T> {
 	// window length in which the pattern match has to occur
 	private Time windowTime;
 
-	protected Pattern(final String name, final Pattern<T, ? extends T> previous) {
+	private boolean antiPattern;
+
+	protected Pattern(final String name, final Pattern<T, ? extends T> previous, boolean antiPattern) {
 		this.name = name;
 		this.previous = previous;
+		this.antiPattern = antiPattern;
 	}
 
 	public String getName() {
@@ -73,6 +76,11 @@ public class Pattern<T, F extends T> {
 	public Time getWindowTime() {
 		return windowTime;
 	}
+
+	public boolean isAntiPattern() {
+		return antiPattern;
+	}
+
 
 	/**
 	 * Specifies a filter condition which has to be fulfilled by an event in order to be matched.
@@ -156,7 +164,7 @@ public class Pattern<T, F extends T> {
 	 * @return A new pattern operator which is appended to this pattern operator
 	 */
 	public Pattern<T, T> next(final String name) {
-		return new Pattern<T, T>(name, this);
+		return new Pattern<T, T>(name, this, false);
 	}
 
 	/**
@@ -168,7 +176,11 @@ public class Pattern<T, F extends T> {
 	 * @return A new pattern operator which is appended to this pattern operator
 	 */
 	public FollowedByPattern<T, T> followedBy(final String name) {
-		return new FollowedByPattern<T, T>(name, this);
+		return new FollowedByPattern<T, T>(name, this, false);
+	}
+
+	public FollowedByPattern<T, T> notFollowedBy(final String name) {
+		return new FollowedByPattern<T, T>(name, this, true);
 	}
 
 	/**
@@ -180,7 +192,7 @@ public class Pattern<T, F extends T> {
 	 * @return The first pattern operator of a pattern
 	 */
 	public static <X> Pattern<X, X> begin(final String name) {
-		return new Pattern<X, X>(name, null);
+		return new Pattern<X, X>(name, null, false);
 	}
 
 }

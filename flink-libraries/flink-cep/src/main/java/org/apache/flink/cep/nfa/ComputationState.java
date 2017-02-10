@@ -62,6 +62,10 @@ public class ComputationState<T> {
 		return state.isStart();
 	}
 
+	public boolean isPotentiallyFinalState() {
+		return state.isPotentiallyFinal();
+	}
+
 	public long getTimestamp() {
 		return timestamp;
 	}

@@ -36,8 +36,8 @@ public class FollowedByPattern<T, F extends T> extends Pattern<T, F> {
 
 	private EnumSet<MatchMode> matchMode;
 
-	FollowedByPattern(final String name, Pattern<T, ?> previous) {
-		super(name, previous);
+	FollowedByPattern(final String name, Pattern<T, ?> previous, boolean antiPattern) {
+		super(name, previous, antiPattern);
 		this.matchMode = EnumSet.noneOf(MatchMode.class);
 	}
 

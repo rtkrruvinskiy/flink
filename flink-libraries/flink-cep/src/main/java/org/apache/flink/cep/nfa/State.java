@@ -52,6 +52,8 @@ public class State<T> implements Serializable {
 
 	public boolean isStart() { return stateType == StateType.Start; }
 
+	public boolean isPotentiallyFinal() { return stateType == StateType.PotentiallyFinal; }
+
 	public String getName() {
 		return name;
 	}
@@ -104,6 +106,7 @@ public class State<T> implements Serializable {
 	public enum StateType {
 		Start, // the state is a starting state for the NFA
 		Final, // the state is a final state for the NFA
+		PotentiallyFinal, // the state is final if we are in it when a timeout occurs
 		Normal // the state is neither a start nor a final state
 	}
 }

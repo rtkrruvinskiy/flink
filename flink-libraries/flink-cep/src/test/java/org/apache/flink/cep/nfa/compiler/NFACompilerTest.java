@@ -38,6 +38,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertEquals;
 
 public class NFACompilerTest extends TestLogger {
@@ -125,5 +126,94 @@ public class NFACompilerTest extends TestLogger {
 
 		assertTrue(endState.isFinal());
 		assertEquals(0, endState.getStateTransitions().size());
+	}
+
+	@Test
+	public void testNFACompilerWithAntiPattern() {
+		Pattern<Event, ?> pattern = Pattern.<Event>begin("a")
+			.where(new FilterFunction<Event>() {
+				@Override
+				public boolean filter(Event value) throws Exception {
+					return value.getPrice() > 5.0;
+				}
+			})
+			.notFollowedBy("b")
+			.where(new FilterFunction<Event>() {
+				@Override
+				public boolean filter(Event value) throws Exception {
+					return value.getPrice() == 10.0;
+				}
+			})
+			.followedBy("c")
+			.where(new FilterFunction<Event>() {
+				@Override
+				public boolean filter(Event value) throws Exception {
+					return value.getPrice() > 6.0;
+				}
+			})
+			.notFollowedBy("d")
+			.where(new FilterFunction<Event>() {
+				@Override
+				public boolean filter(Event value) throws Exception {
+					return value.getPrice() < 5.0;
+				}
+			})
+			.notFollowedBy("e")
+			.where(new FilterFunction<Event>() {
+				@Override
+				public boolean filter(Event value) throws Exception {
+					return value.getPrice() == 15.0;
+				}
+			});
+
+		TypeInformation<Event> typeInformation = TypeExtractor.createTypeInfo(Event.class);
+
+		NFA<Event> nfa = NFACompiler.compile(pattern, typeInformation.createSerializer(new ExecutionConfig()), false);
+
+		Set<State<Event>> states = nfa.getStates();
+
+		assertEquals(3, states.size());
+
+		Map<String, State<Event>> stateMap = new HashMap<>();
+		Map<String, StateTransition<Event>> transitionMap = new HashMap<>();
+
+		for (State<Event> state: states) {
+			stateMap.put(state.getName(), state);
+		}
+
+		assertTrue(stateMap.containsKey(NFACompiler.BEGINNING_STATE_NAME));
+		State<Event> beginningState = stateMap.get(NFACompiler.BEGINNING_STATE_NAME);
+
+		assertTrue(beginningState.isStart());
+
+		assertTrue(stateMap.containsKey("a"));
+		State<Event> aState = stateMap.get("a");
+		assertFalse(aState.isStart());
+		assertFalse(aState.isPotentiallyFinal());
+		assertFalse(aState.isFinal());
+
+		for (StateTransition<Event> transition: aState.getStateTransitions()) {
+			transitionMap.put(transition.getTargetState().getName(), transition);
+		}
+		assertEquals(2, transitionMap.size());
+		assertTrue(transitionMap.containsKey("a"));
+		assertEquals(StateTransitionAction.IGNORE, transitionMap.get("a").getAction());
+		assertTrue(transitionMap.containsKey("c"));
+		assertEquals(StateTransitionAction.TAKE, transitionMap.get("c").getAction());
+		transitionMap.clear();
+
+		assertTrue(stateMap.containsKey("c"));
+		State<Event> cState = stateMap.get("c");
+		assertFalse(cState.isStart());
+		assertTrue(cState.isPotentiallyFinal());
+		assertFalse(cState.isFinal());
+
+		for (StateTransition<Event> transition: cState.getStateTransitions()) {
+			transitionMap.put(transition.getTargetState().getName(), transition);
+		}
+		assertEquals(1, transitionMap.size());
+		assertTrue(transitionMap.containsKey("c"));
+		assertEquals(StateTransitionAction.IGNORE, transitionMap.get("c").getAction());
+		transitionMap.clear();
 	}
 }
