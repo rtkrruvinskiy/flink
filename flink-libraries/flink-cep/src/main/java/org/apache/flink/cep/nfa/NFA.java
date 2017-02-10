@@ -144,7 +144,10 @@ public class NFA<T> implements Serializable {
 				windowTime > 0L &&
 				timestamp - computationState.getStartTimestamp() >= windowTime) {
 
-				if (handleTimeout) {
+				if (computationState.isPotentiallyFinalState()) {
+					Collection<Map<String, T>> matches = extractPatternMatches(computationState);
+					result.addAll(matches);
+				} else if (handleTimeout) {
 					// extract the timed out event patterns
 					Collection<Map<String, T>> timeoutPatterns = extractPatternMatches(computationState);
 

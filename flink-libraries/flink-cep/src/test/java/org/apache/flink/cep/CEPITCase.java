@@ -35,11 +35,13 @@ import org.apache.flink.streaming.util.StreamingMultipleProgramsTestBase;
 import org.apache.flink.types.Either;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 import java.util.Map;
+import java.util.logging.Filter;
 
 @SuppressWarnings("serial")
 public class CEPITCase extends StreamingMultipleProgramsTestBase {
@@ -566,6 +568,278 @@ public class CEPITCase extends StreamingMultipleProgramsTestBase {
 		result.writeAsText(resultPath, FileSystem.WriteMode.OVERWRITE);
 		// expected sequence of matching event ids
 		expected = "2,3,5\n3,4,5\n2,3,6\n3,4,6\n4,5,6";
+
+		env.execute();
+	}
+
+	private DataStream<Event> getEventStreamFromTimestampedStream(DataStream<Tuple2<Event, Long>> input) {
+		return input.assignTimestampsAndWatermarks(new AssignerWithPunctuatedWatermarks<Tuple2<Event,Long>>() {
+
+			@Override
+			public long extractTimestamp(Tuple2<Event, Long> element, long previousTimestamp) {
+				return element.f1;
+			}
+
+			@Override
+			public Watermark checkAndGetNextWatermark(Tuple2<Event, Long> lastElement, long extractedTimestamp) {
+				return new Watermark(lastElement.f1 - 5);
+			}
+
+		}).map(new MapFunction<Tuple2<Event, Long>, Event>() {
+
+			@Override
+			public Event map(Tuple2<Event, Long> value) throws Exception {
+				return value.f0;
+			}
+		});
+	}
+
+	/**
+	 * Checks that a single anti-pattern will match in a terminal position
+	 * @throws Exception
+	 */
+	@Ignore("Requires operator modification to look at states at stream close")
+	@Test
+	public void testTerminalAntiPatternMatchCEP() throws Exception {
+		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+		env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
+
+		DataStream<Event> input = env.fromElements(
+			new Event(1, "a", 1.0),
+			new Event(2, "c", 2.0),
+			// last element for high final watermark
+			new Event(3, "d", 3.0)
+		);
+
+		Pattern<Event, ?> pattern = Pattern.<Event>begin("a")
+			.where(new FilterFunction<Event>() {
+				@Override
+				public boolean filter(Event value) throws Exception {
+					return value.getName().equals("a");
+				}
+			})
+			.notFollowedBy("b")
+			.where(new FilterFunction<Event>() {
+				@Override
+				public boolean filter(Event value) throws Exception {
+					return value.getName().equals("b");
+				}
+			});
+
+		DataStream<String> result = CEP.pattern(input, pattern).select(new PatternSelectFunction<Event, String>() {
+
+			@Override
+			public String select(Map<String, Event> pattern) {
+				return String.valueOf(pattern.get("a").getId());
+			}
+		});
+
+		result.writeAsText(resultPath, FileSystem.WriteMode.OVERWRITE);
+		// expected sequence of matching event ids
+		expected = "1";
+
+		env.execute();
+	}
+
+	/**
+	 * Checks that anti-patterns work with timeouts
+	 * @throws Exception
+	 */
+	@Test
+	public void testAntiPatternTimeoutMatchCEP() throws Exception {
+		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+		env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
+
+		// (Event, timestamp)
+		DataStream<Event> input = getEventStreamFromTimestampedStream(env.fromElements(
+			Tuple2.of(new Event(1, "1", 1.0), 1L),
+			Tuple2.of(new Event(2, "2", 6.1), 3L),
+			Tuple2.of(new Event(3, "3", 6.4), 5L),
+			Tuple2.of(new Event(4, "4", 6.3), 7L),
+			Tuple2.of(new Event(5, "5", 4.9), 14L),
+			// last element for high final watermark
+			Tuple2.of(new Event(100, "100", 5.0), 100L)
+		));
+
+		Pattern<Event, ?> pattern = Pattern.<Event>begin("a")
+			.where(new FilterFunction<Event>() {
+				@Override
+				public boolean filter(Event value) throws Exception {
+					return value.getPrice() > 5.0;
+				}
+			})
+			.followedBy("b")
+			.where(new FilterFunction<Event>() {
+				@Override
+				public boolean filter(Event value) throws Exception {
+					return value.getPrice() > 6.0;
+				}
+			})
+			.notFollowedBy("c")
+			.where(new FilterFunction<Event>() {
+				@Override
+				public boolean filter(Event value) throws Exception {
+					return value.getPrice() < 5.0;
+				}
+			})
+			.notFollowedBy("d")
+			.where(new FilterFunction<Event>() {
+				@Override
+				public boolean filter(Event value) throws Exception {
+					return value.getPrice() == 10.0;
+				}
+			}).within(Time.milliseconds(10));
+
+		DataStream<String> result = CEP.pattern(input, pattern).select(new PatternSelectFunction<Event, String>() {
+
+			@Override
+			public String select(Map<String, Event> pattern) {
+				StringBuilder builder = new StringBuilder();
+
+				builder.append(pattern.get("a").getId()).append(",")
+						.append(pattern.get("b").getId());
+
+				return builder.toString();
+			}
+		});
+
+		result.writeAsText(resultPath, FileSystem.WriteMode.OVERWRITE);
+		// expected sequence of matching event ids
+		expected = "2,3\n2,4";
+
+		env.execute();
+	}
+
+	/**
+	 * Checks that a single anti-pattern in an intermediate position will match
+	 * @throws Exception
+	 */
+	@Test
+	public void testIntermediateSingleAntiPatternMatchCEP() throws Exception {
+		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+
+		DataStream<Event> input = env.fromElements(
+			new Event(1, "a", 1.0),
+			new Event(2, "c", 2.0),
+			new Event(3, "d", 3.0)
+		);
+
+		Pattern<Event, ?> pattern = Pattern.<Event>begin("a")
+			.where(new FilterFunction<Event>() {
+				@Override
+				public boolean filter(Event value) throws Exception {
+					return value.getName().equals("a");
+				}
+			})
+			.notFollowedBy("b")
+			.where(new FilterFunction<Event>() {
+				@Override
+				public boolean filter(Event value) throws Exception {
+					return value.getName().equals("b");
+				}
+			})
+			.followedBy("d")
+			.where(new FilterFunction<Event>() {
+				@Override
+				public boolean filter(Event value) throws Exception {
+					return value.getName().equals("d");
+				}
+			});
+
+		DataStream<String> result = CEP.pattern(input, pattern).select(new PatternSelectFunction<Event, String>() {
+
+			@Override
+			public String select(Map<String, Event> pattern) {
+				StringBuilder builder = new StringBuilder();
+
+				builder.append(pattern.get("a").getId()).append(",")
+						.append(pattern.get("d").getId());
+
+				return builder.toString();
+			}
+		});
+
+		result.writeAsText(resultPath, FileSystem.WriteMode.OVERWRITE);
+		// expected sequence of matching event ids
+		expected = "1,3";
+
+		env.execute();
+	}
+
+	/**
+	 * Checks that a sequence of anti-patterns behaves as expected
+	 * @throws Exception
+	 */
+	@Test
+	public void testIntermediateSequenceAntiPatternMatchCEP() throws Exception {
+		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+
+		DataStream<Event> input = env.fromElements(
+			new Event(1, "1", 1.0),
+			new Event(2, "2", 5.1),
+			new Event(3, "3", 3.0),
+			new Event(4, "4", 4.0),
+			new Event(5, "5", 8.0),
+			new Event(6, "6", 6.0),
+			new Event(7, "7", 9.0),
+			new Event(8, "8", 10.5),
+			new Event(9, "9", 9.0),
+			// last element for high final watermark
+			new Event(100, "100", 5.0)
+		);
+
+		Pattern<Event, ?> pattern = Pattern.<Event>begin("a")
+			.where(new FilterFunction<Event>() {
+				@Override
+				public boolean filter(Event value) throws Exception {
+					return value.getPrice() > 5.0;
+				}
+			})
+			.notFollowedBy("b")
+			.where(new FilterFunction<Event>() {
+				@Override
+				public boolean filter(Event value) throws Exception {
+					return value.getPrice() < 5.0;
+				}
+			})
+			.notFollowedBy("c")
+			.where(new FilterFunction<Event>() {
+				@Override
+				public boolean filter(Event value) throws Exception {
+					return value.getPrice() == 5.0;
+				}
+			})
+			.notFollowedBy("d")
+			.where(new FilterFunction<Event>() {
+				@Override
+				public boolean filter(Event value) throws Exception {
+					return value.getPrice() > 10.0;
+				}
+			})
+			.followedBy("e")
+			.where(new FilterFunction<Event>() {
+				@Override
+				public boolean filter(Event value) throws Exception {
+					return value.getPrice() > 7.0;
+				}
+			});
+
+		DataStream<String> result = CEP.pattern(input, pattern).select(new PatternSelectFunction<Event, String>() {
+
+			@Override
+			public String select(Map<String, Event> pattern) {
+				StringBuilder builder = new StringBuilder();
+
+				builder.append(pattern.get("a").getId()).append(",")
+						.append(pattern.get("e").getId());
+
+				return builder.toString();
+			}
+		});
+
+		result.writeAsText(resultPath, FileSystem.WriteMode.OVERWRITE);
+		// expected sequence of matching event ids
+		expected = "5,7\n6,7\n8,9";
 
 		env.execute();
 	}

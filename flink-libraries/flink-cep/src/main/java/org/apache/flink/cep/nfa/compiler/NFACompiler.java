@@ -26,6 +26,8 @@ import org.apache.flink.cep.nfa.StateTransition;
 import org.apache.flink.cep.nfa.StateTransitionAction;
 import org.apache.flink.cep.pattern.FollowedByPattern;
 import org.apache.flink.cep.pattern.NotFilterFunction;
+import org.apache.flink.cep.pattern.OrFilterFunction;
+import org.apache.flink.cep.pattern.AndFilterFunction;
 import org.apache.flink.cep.pattern.Pattern;
 import org.apache.flink.streaming.api.windowing.time.Time;
 
@@ -85,20 +87,27 @@ public class NFACompiler {
 			Map<String, State<T>> states = new HashMap<>();
 			long windowTime;
 
-			Pattern<T, ?> succeedingPattern;
-			State<T> succeedingState;
+			FilterFunction<T> antiPatternCondition = null;
+
+			Pattern<T, ?> succeedingPattern = null;
+			State<T> succeedingState = null;
 			Pattern<T, ?> currentPattern = pattern;
+			State<T> currentState = null;
 
-			// we're traversing the pattern from the end to the beginning --> the first state is the final state
-			State<T> currentState = new State<>(currentPattern.getName(), State.StateType.Final);
-
-			states.put(currentPattern.getName(), currentState);
+			boolean antiPatternChain = currentPattern.isAntiPattern();
+			if (antiPatternChain) {
+				antiPatternCondition = (FilterFunction<T>) currentPattern.getFilterFunction();
+			} else {
+				// we're traversing the pattern from the end to the beginning --> the first state is the final state
+				currentState = new State<>(currentPattern.getName(), State.StateType.Final);
+				states.put(currentPattern.getName(), currentState);
+				succeedingPattern = currentPattern;
+				succeedingState = currentState;
+			}
 
 			windowTime = currentPattern.getWindowTime() != null ? currentPattern.getWindowTime().toMilliseconds() : 0L;
 
 			while (currentPattern.getPrevious() != null) {
-				succeedingPattern = currentPattern;
-				succeedingState = currentState;
 				currentPattern = currentPattern.getPrevious();
 
 				Time currentWindowTime = currentPattern.getWindowTime();
@@ -111,27 +120,76 @@ public class NFACompiler {
 				if (states.containsKey(currentPattern.getName())) {
 					currentState = states.get(currentPattern.getName());
 				} else {
-					currentState = new State<>(currentPattern.getName(), State.StateType.Normal);
+					State.StateType stateType;
+					if (currentPattern.isAntiPattern()) {
+						antiPatternChain = true;
+						if (antiPatternCondition == null) {
+							antiPatternCondition = (FilterFunction<T>) currentPattern.getFilterFunction();
+						} else {
+							antiPatternCondition = new OrFilterFunction<T>(
+									(FilterFunction<T>) currentPattern.getFilterFunction(), antiPatternCondition);
+						}
+						continue;
+					} else if (antiPatternChain && succeedingPattern == null) {
+						// A anti-pattern in a terminal position preceded by a pattern
+						// Should match if end-of-stream or timeout occurs without
+						// anti-patterns encountered
+						stateType = State.StateType.PotentiallyFinal;
+						antiPatternChain = false;
+					} else {
+						stateType = State.StateType.Normal;
+					}
+
+					currentState = new State<>(currentPattern.getName(), stateType);
 					states.put(currentState.getName(), currentState);
 				}
 
-				currentState.addStateTransition(new StateTransition<T>(
-					StateTransitionAction.TAKE,
-					succeedingState,
-					(FilterFunction<T>) succeedingPattern.getFilterFunction()));
-
-				if (succeedingPattern instanceof FollowedByPattern) {
-					FilterFunction<T> ignoreTrasition = null;
-					if (((FollowedByPattern) succeedingPattern).matchOnce()) {
-						ignoreTrasition = new NotFilterFunction<>((FilterFunction<T>) succeedingPattern.getFilterFunction());
+				if (succeedingPattern != null && succeedingState != null) {
+					FilterFunction<T> takeTrasition = (FilterFunction<T>) succeedingPattern.getFilterFunction();
+					if (antiPatternCondition != null) {
+						takeTrasition = new AndFilterFunction<>(takeTrasition,
+								new NotFilterFunction<>(antiPatternCondition));
 					}
-					// the followed by pattern entails a reflexive ignore transition
+					currentState.addStateTransition(new StateTransition<T>(
+							StateTransitionAction.TAKE,
+							succeedingState,
+							takeTrasition));
+
+					if (succeedingPattern instanceof FollowedByPattern) {
+						FilterFunction<T> ignoreTrasition = null;
+						if (((FollowedByPattern) succeedingPattern).matchOnce()) {
+							ignoreTrasition = (FilterFunction<T>) succeedingPattern.getFilterFunction();
+						}
+						if (antiPatternCondition != null) {
+							if (ignoreTrasition == null) {
+								ignoreTrasition = antiPatternCondition;
+							} else {
+								ignoreTrasition = new OrFilterFunction<T>(antiPatternCondition, ignoreTrasition);
+							}
+						}
+						if (ignoreTrasition != null) {
+							ignoreTrasition = new NotFilterFunction<T>(ignoreTrasition);
+						}
+						// the followed by pattern entails a reflexive ignore transition
+						currentState.addStateTransition(new StateTransition<T>(
+								StateTransitionAction.IGNORE,
+								currentState,
+								ignoreTrasition
+						));
+					}
+				} else if (currentState.isPotentiallyFinal()) {
+					// We want to keep potentially final states valid unless we encounter
+					// an anti-pattern
 					currentState.addStateTransition(new StateTransition<T>(
 						StateTransitionAction.IGNORE,
 						currentState,
-						ignoreTrasition
+						new NotFilterFunction<T>(antiPatternCondition)
 					));
 				}
+
+				antiPatternCondition = null;
+				succeedingPattern = currentPattern;
+				succeedingState = currentState;
 			}
 
 			// add the beginning state
