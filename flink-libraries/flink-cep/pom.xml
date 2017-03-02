@@ -33,7 +33,7 @@ under the License.
     <artifactId>flink-cep_2.10</artifactId>
     <name>flink-cep</name>
     <packaging>jar</packaging>
-    <version>${project.parent.version}-AWN</version>
+    <version>${project.parent.version}-AWN-SNAPSHOT</version>
 
     <dependencies>
 
