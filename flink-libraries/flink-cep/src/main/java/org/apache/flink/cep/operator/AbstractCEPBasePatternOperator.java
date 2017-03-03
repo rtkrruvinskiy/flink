@@ -22,6 +22,7 @@ import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.cep.nfa.NFA;
 import org.apache.flink.streaming.api.operators.AbstractStreamOperator;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
+import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 
 import java.io.IOException;
@@ -44,6 +45,8 @@ public abstract class AbstractCEPBasePatternOperator<IN, OUT>
 
 	private final TypeSerializer<IN> inputSerializer;
 	private final boolean isProcessingTime;
+	// Timestamp of the last watermark
+	protected long lastWatermarkTimestamp = Long.MIN_VALUE;
 
 	public AbstractCEPBasePatternOperator(
 			final TypeSerializer<IN> inputSerializer,
@@ -72,17 +75,20 @@ public abstract class AbstractCEPBasePatternOperator<IN, OUT>
 			processEvent(nfa, element.getValue(), System.currentTimeMillis());
 			updateNFA(nfa);
 		} else {
-			PriorityQueue<StreamRecord<IN>> priorityQueue = getPriorityQueue();
+			// Only process the data if it's after the previous timestamp, otherwise we'll drop it
+			if (element.getTimestamp() >= lastWatermarkTimestamp) {
+				PriorityQueue<StreamRecord<IN>> priorityQueue = getPriorityQueue();
 
-			// event time processing
-			// we have to buffer the elements until we receive the proper watermark
-			if (getExecutionConfig().isObjectReuseEnabled()) {
-				// copy the StreamRecord so that it cannot be changed
-				priorityQueue.offer(new StreamRecord<IN>(inputSerializer.copy(element.getValue()), element.getTimestamp()));
-			} else {
-				priorityQueue.offer(element);
+				// event time processing
+				// we have to buffer the elements until we receive the proper watermark
+				if (getExecutionConfig().isObjectReuseEnabled()) {
+					// copy the StreamRecord so that it cannot be changed
+					priorityQueue.offer(new StreamRecord<IN>(inputSerializer.copy(element.getValue()), element.getTimestamp()));
+				} else {
+					priorityQueue.offer(element);
+				}
+				updatePriorityQueue(priorityQueue);
 			}
-			updatePriorityQueue(priorityQueue);
 		}
 	}
 
@@ -104,4 +110,11 @@ public abstract class AbstractCEPBasePatternOperator<IN, OUT>
 	 * @param timestamp to advance the time to
 	 */
 	protected abstract void advanceTime(NFA<IN> nfa, long timestamp);
+
+	public void processWatermark(Watermark mark) throws Exception {
+		doProcessWatermark(mark);
+		lastWatermarkTimestamp = mark.getTimestamp();
+	}
+
+	protected abstract void doProcessWatermark(Watermark mark) throws Exception;
 }

@@ -93,7 +93,7 @@ abstract public class AbstractCEPPatternOperator<IN, OUT> extends AbstractCEPBas
 	}
 
 	@Override
-	public void processWatermark(Watermark mark) throws Exception {
+	public void doProcessWatermark(Watermark mark) throws Exception {
 		if (priorityQueue.isEmpty()) {
 			advanceTime(nfa, mark.getTimestamp());
 		} else {
