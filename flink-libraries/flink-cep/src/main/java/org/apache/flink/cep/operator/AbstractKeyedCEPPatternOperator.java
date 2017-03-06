@@ -162,7 +162,7 @@ abstract public class AbstractKeyedCEPPatternOperator<IN, KEY, OUT> extends Abst
 	}
 
 	@Override
-	public void processWatermark(Watermark mark) throws Exception {
+	public void doProcessWatermark(Watermark mark) throws Exception {
 		// iterate over all keys to trigger the execution of the buffered elements
 		for (KEY key: keys) {
 			setKeyContext(key);

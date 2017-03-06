@@ -298,6 +298,105 @@ public class CEPOperatorTest extends TestLogger {
 	}
 
 	@Test
+	public void testKeyedCEPOperatorDelayedEvents() throws Exception {
+		KeySelector<Event, Integer> keySelector = new KeySelector<Event, Integer>() {
+			private static final long serialVersionUID = -4873366487571254798L;
+
+			@Override
+			public Integer getKey(Event value) throws Exception {
+				return value.getId();
+			}
+		};
+
+		OneInputStreamOperatorTestHarness<Event, Map<String, Event>> harness = new OneInputStreamOperatorTestHarness<>(
+				new KeyedCEPPatternOperator<>(
+						Event.createTypeSerializer(),
+						false,
+						keySelector,
+						IntSerializer.INSTANCE,
+						new NFAFactory()));
+
+		harness.configureForKeyedStream(keySelector, BasicTypeInfo.INT_TYPE_INFO);
+		harness.open();
+
+		Event startEvent = new Event(42, "start", 1.0);
+		SubEvent middleEvent = new SubEvent(42, "foo", 1.0, 10.0);
+		Event endEvent=  new Event(42, "end", 1.0);
+
+		harness.processElement(new StreamRecord<Event>(startEvent, 1));
+		harness.processElement(new StreamRecord<Event>(new Event(42, "foobar", 1.0), 2));
+		harness.processWatermark(new Watermark(Long.MIN_VALUE));
+
+		harness.processElement(new StreamRecord<Event>(new SubEvent(42, "barfoo", 1.0, 5.0), 3));
+		harness.processWatermark(new Watermark(4));
+
+		harness.processElement(new StreamRecord<Event>(middleEvent, 3)); // This element should never appear
+		harness.processElement(new StreamRecord<Event>(new Event(42, "start", 1.0), 5));
+		harness.processElement(new StreamRecord<Event>(endEvent, 6));
+		harness.processWatermark(new Watermark(Long.MAX_VALUE));
+
+		ConcurrentLinkedQueue<Object> result = harness.getOutput();
+
+		// Just watermarks
+		assertEquals(3, result.size());
+		assert(result.poll() instanceof Watermark);
+		assert(result.poll() instanceof Watermark);
+		assert(result.poll() instanceof Watermark);
+
+		harness.close();
+	}
+
+	@Test
+	public void testKeyedCEPOperatorOnTimeEvents() throws Exception {
+		KeySelector<Event, Integer> keySelector = new KeySelector<Event, Integer>() {
+			private static final long serialVersionUID = -4873366487571254798L;
+
+			@Override
+			public Integer getKey(Event value) throws Exception {
+				return value.getId();
+			}
+		};
+
+		OneInputStreamOperatorTestHarness<Event, Map<String, Event>> harness = new OneInputStreamOperatorTestHarness<>(
+				new KeyedCEPPatternOperator<>(
+						Event.createTypeSerializer(),
+						false,
+						keySelector,
+						IntSerializer.INSTANCE,
+						new NFAFactory()));
+
+		harness.configureForKeyedStream(keySelector, BasicTypeInfo.INT_TYPE_INFO);
+		harness.open();
+
+		Event startEvent = new Event(42, "start", 1.0);
+		SubEvent middleEvent = new SubEvent(42, "foo", 1.0, 10.0);
+		Event endEvent=  new Event(42, "end", 1.0);
+
+		harness.processElement(new StreamRecord<Event>(startEvent, 1));
+		harness.processElement(new StreamRecord<Event>(new Event(42, "foobar", 1.0), 2));
+		harness.processWatermark(new Watermark(Long.MIN_VALUE));
+
+		harness.processElement(new StreamRecord<Event>(new SubEvent(42, "barfoo", 1.0, 5.0), 3));
+		harness.processWatermark(new Watermark(3));
+
+		harness.processElement(new StreamRecord<Event>(middleEvent, 4));
+		harness.processElement(new StreamRecord<Event>(new Event(42, "start", 1.0), 5));
+		harness.processElement(new StreamRecord<Event>(endEvent, 6));
+		harness.processWatermark(new Watermark(Long.MAX_VALUE));
+
+		ConcurrentLinkedQueue<Object> result = harness.getOutput();
+
+		// 3 watermarks and a match
+		assertEquals(4, result.size());
+		assert(result.poll() instanceof Watermark);
+		assert(result.poll() instanceof Watermark);
+		assert(result.poll() instanceof StreamRecord);
+		assert(result.poll() instanceof Watermark);
+
+		harness.close();
+	}
+
+	@Test
 	public void testKeyedCEPOperatorCheckpointingWithRocksDB() throws Exception {
 
 		String rocksDbPath = tempFolder.newFolder().getAbsolutePath();
