@@ -71,9 +71,7 @@ public abstract class AbstractCEPBasePatternOperator<IN, OUT>
 	public void processElement(StreamRecord<IN> element) throws Exception {
 		if (isProcessingTime) {
 			// there can be no out of order elements in processing time
-			NFA<IN> nfa = getNFA();
-			processEvent(nfa, element.getValue(), System.currentTimeMillis());
-			updateNFA(nfa);
+			eagerlyProcess(element, System.currentTimeMillis());
 		} else {
 			// Only process the data if it's after the previous timestamp, otherwise we'll drop it
 			if (element.getTimestamp() >= lastWatermarkTimestamp) {
@@ -90,6 +88,12 @@ public abstract class AbstractCEPBasePatternOperator<IN, OUT>
 				updatePriorityQueue(priorityQueue);
 			}
 		}
+	}
+
+	private void eagerlyProcess(StreamRecord<IN> element, long timestamp) throws IOException {
+		NFA<IN> nfa = getNFA();
+		processEvent(nfa, element.getValue(), timestamp);
+		updateNFA(nfa);
 	}
 
 	/**
