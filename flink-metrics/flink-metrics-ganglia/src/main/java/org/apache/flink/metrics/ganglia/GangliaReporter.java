@@ -28,6 +28,7 @@ import org.apache.flink.metrics.MetricConfig;
 
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 
 @PublicEvolving
 public class GangliaReporter extends ScheduledDropwizardReporter {
@@ -36,6 +37,8 @@ public class GangliaReporter extends ScheduledDropwizardReporter {
 	public static final String ARG_TMAX = "tmax";
 	public static final String ARG_TTL = "ttl";
 	public static final String ARG_MODE_ADDRESSING = "addressingMode";
+
+	private static final Pattern SLASH = Pattern.compile("/");
 
 	@Override
 	public ScheduledReporter getReporter(MetricConfig config) {
@@ -77,5 +80,10 @@ public class GangliaReporter extends ScheduledDropwizardReporter {
 		} catch (IOException e) {
 			throw new RuntimeException("Error while instantiating GangliaReporter.", e);
 		}
+	}
+
+	@Override
+	public String filterCharacters(String metricName) {
+		return SLASH.matcher(super.filterCharacters(metricName)).replaceAll("-");
 	}
 }
